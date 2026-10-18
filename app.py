@@ -1,8 +1,13 @@
+import base64
+import datetime
 import io
 import json
 import math
 import re
+import urllib.parse
 import uuid
+
+import requests
 
 import pandas as pd
 import streamlit as st
@@ -561,6 +566,37 @@ def build_pptx(outline, images, source_name):
 # ----------------------------------------------------------------------------
 # 四、编辑器回调
 # ----------------------------------------------------------------------------
+def github_put(token, repo, branch, path, content: bytes, message):
+    """通过 GitHub Contents API 创建/更新文件，返回文件网页链接。"""
+    url = f"https://api.github.com/repos/{repo}/contents/{urllib.parse.quote(path)}"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    r = requests.get(url, headers=headers, params={"ref": branch}, timeout=30)
+    sha = r.json().get("sha") if r.status_code == 200 else None
+    payload = {"message": message, "content": base64.b64encode(content).decode(), "branch": branch}
+    if sha:
+        payload["sha"] = sha
+    r = requests.put(url, headers=headers, json=payload, timeout=120)
+    if r.status_code not in (200, 201):
+        try:
+            msg = r.json().get("message", r.text)
+        except Exception:
+            msg = r.text
+        raise RuntimeError(f"GitHub 返回 {r.status_code}：{msg[:200]}")
+    return r.json()["content"]["html_url"]
+
+
+def outline_to_json(outline):
+    slides = [
+        dict(title=s["title"], bullets=s["bullets"], image_ids=s["image_ids"], table=final_table(s), notes=s["notes"])
+        for s in outline["slides"]
+    ]
+    return json.dumps(dict(title=outline["title"], subtitle=outline["subtitle"], slides=slides), ensure_ascii=False, indent=2)
+
+
 def commit_tables():
     """把表格编辑结果固化为新的基准，并更换 key，避免 data_editor 状态叠加。"""
     if not st.session_state.outline:
@@ -595,6 +631,17 @@ def cb_add(i):
     st.session_state.sel = i + 1
 
 
+def get_thumb(im):
+    """生成并缓存小尺寸缩略图，仅用于网页预览，不影响 PPT 中的原图。"""
+    if "thumb" not in im:
+        t = Image.open(io.BytesIO(im["bytes"]))
+        t.thumbnail((320, 320))
+        buf = io.BytesIO()
+        t.convert("RGB").save(buf, "JPEG", quality=80)
+        im["thumb"] = buf.getvalue()
+    return im["thumb"]
+
+
 def img_label(images, i):
     im = images[i]
     cap = (im.get("caption") or "")[:24]
@@ -613,16 +660,22 @@ def render_slide_editor(s, i, images):
 
     # 图片
     if images:
+        st.markdown("**本页使用的原文图片**（勾选缩略图下方的复选框）")
         opts = sorted(images)
-        s["image_ids"] = st.multiselect(
-            "本页使用的原文图片", opts, default=[x for x in s["image_ids"] if x in images],
-            format_func=lambda x: img_label(images, x), key=f"im_{uid}",
-        )
-        if s["image_ids"]:
-            cols = st.columns(min(4, len(s["image_ids"])))
-            for k, iid in enumerate(s["image_ids"]):
+        chosen = []
+        for row_start in range(0, len(opts), 5):
+            cols = st.columns(5)
+            for col, iid in zip(cols, opts[row_start : row_start + 5]):
+                with col:
+                    st.image(get_thumb(images[iid]), use_container_width=True)
+                    if st.checkbox(img_label(images, iid), iid in s["image_ids"], key=f"pick_{uid}_{iid}"):
+                        chosen.append(iid)
+        s["image_ids"] = chosen
+        if chosen:
+            st.markdown("**已选图片的图注**（显示在幻灯片图片下方，可修改或清空）")
+            cols = st.columns(min(3, len(chosen)))
+            for k, iid in enumerate(chosen):
                 with cols[k % len(cols)]:
-                    st.image(images[iid]["bytes"], use_container_width=True)
                     images[iid]["caption"] = st.text_input(f"图{iid} 图注", images[iid].get("caption", ""), key=f"cap_{iid}")
 
     # 表格
@@ -665,6 +718,19 @@ with st.sidebar:
     auto_fallback = st.checkbox("失败时自动尝试其他免费模型", True)
     max_chars = st.slider("送入模型的最大字符数", 10000, 120000, 45000, 5000,
                           help="免费模型上下文较短，长文献请调小或换用大上下文模型。")
+    st.markdown("---")
+    st.header("☁️ GitHub 保存")
+    try:
+        gh_token_secret = st.secrets.get("GITHUB_TOKEN", "")
+        gh_repo_secret = st.secrets.get("GITHUB_REPO", "")
+    except Exception:
+        gh_token_secret, gh_repo_secret = "", ""
+    gh_token = st.text_input("GitHub Token", type="password", placeholder="github_pat_...",
+                             help="需要对目标仓库有 Contents: Read and write 权限。") or gh_token_secret
+    gh_repo = st.text_input("仓库（owner/repo）", value=gh_repo_secret, placeholder="your-name/ppt-output")
+    gh_branch = st.text_input("分支", value="main")
+    gh_folder = st.text_input("保存目录", value="ppt_output")
+    gh_with_json = st.checkbox("同时保存大纲 JSON", True)
     st.markdown("---")
     st.markdown("提示：扫描版 PDF 无文字层，需先做 OCR；矢量绘制的图表无法被提取，可在编辑阶段手动上传截图。")
 
@@ -788,3 +854,23 @@ if outline:
             "📥 下载 .pptx", st.session_state.ppt, file_name=fname,
             mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
         )
+
+        if st.button("☁️ 保存到 GitHub"):
+            if not (gh_token and gh_repo.strip()):
+                st.error("请先在左侧填写 GitHub Token 和仓库（owner/repo）。")
+            else:
+                try:
+                    stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                    base = f"{stamp}_{fname[:-5]}"
+                    folder = gh_folder.strip().strip("/")
+                    prefix = f"{folder}/" if folder else ""
+                    repo, branch = gh_repo.strip(), (gh_branch.strip() or "main")
+                    with st.spinner("正在上传到 GitHub…"):
+                        url = github_put(gh_token, repo, branch, f"{prefix}{base}.pptx",
+                                         st.session_state.ppt, f"Add presentation: {base}")
+                        if gh_with_json:
+                            github_put(gh_token, repo, branch, f"{prefix}{base}.outline.json",
+                                       outline_to_json(outline).encode("utf-8"), f"Add outline: {base}")
+                    st.success(f"已保存到 GitHub：[{url}]({url})")
+                except Exception as e:
+                    st.error(f"保存失败：{e}")
