@@ -1,0 +1,417 @@
+{
+  "cover": {
+    "kicker": "深度综述 · 2026",
+    "title": "EEG监测在围术期脑健康中的演进与应用",
+    "meta": "从机制、监测到闭环管理的全景梳理",
+    "foot": "关键词: EEG, 术后谵妄, 认知功能, 脑易损性"
+  },
+  "sections": [
+    {
+      "title": "背景与EEG基础",
+      "subtitle": "什么是术中EEG的核心技术方面？"
+    },
+    {
+      "title": "不同麻醉药物的EEG特征",
+      "subtitle": "各种药物如何塑造EEG？"
+    },
+    {
+      "title": "处理指数与药物滴定",
+      "subtitle": "处理EEG指数在药物滴定中的价值与局限是什么？"
+    },
+    {
+      "title": "EEG谵妄生物标志物",
+      "subtitle": "哪些EEG特征预测谵妄，其因果作用是什么？"
+    },
+    {
+      "title": "年龄与认知对EEG的影响",
+      "subtitle": "衰老和基线认知如何改变术中EEG？"
+    },
+    {
+      "title": "临床意义与未来方向",
+      "subtitle": "EEG如何指导个体化围术期管理？"
+    }
+  ],
+  "slides": [
+    {
+      "sec": 1,
+      "title": "EEG采样 100–1000 Hz",
+      "layout": "bullets",
+      "sub_title": "",
+      "bullets": [
+        "采样率 100–1000 Hz 捕获EEG活动：信号以离散电压序列采样",
+        "带通滤波 0.5–50 Hz 去除慢漂移和50 Hz干扰：算子定义带通最常设在0.5–50 Hz以消除慢漂移和高频噪声，包括50 Hz交流干扰",
+        "伪影检测纠正肌肉/运动干扰：伪影检测则识别并纠正来自运动或肌肉活动的污染",
+        "重参考至乳突或共平均值标准化电压：重参考（至乳突或共平均）使各记录站点的电压测量标准化"
+      ],
+      "blocks": [],
+      "stats": [],
+      "steps": [],
+      "items": [],
+      "image_ids": [],
+      "contrast": false,
+      "table": null,
+      "chart": null,
+      "chart_type": "bar",
+      "chart_title": "",
+      "callout": "",
+      "notes": ""
+    },
+    {
+      "sec": 1,
+      "title": "EEG时频反映脑状态",
+      "layout": "chains",
+      "sub_title": "",
+      "bullets": [],
+      "blocks": [
+        {
+          "heading": "时域分析",
+          "lines": [
+            "检视原始EEG幅度、波形、瞬态事件：时域分析检视原始EEG信号随时间的演变，关注幅度、波形形态和瞬态事件",
+            "清醒状态表现为低幅度、高变异性活动：活跃脑状态产生幅度小、变异性高的信号",
+            "深度抑制导致更慢、幅度更大的EEG（↑丘脑皮质同步）：随着麻醉诱导的皮质抑制加深，EEG活动变慢且幅度增高，反映了由GABAergic抑制驱动的增强丘脑皮质同步",
+            "爆发抑制：高幅度爆发交替等电抑制时期：爆发抑制（BS）表现为高幅度爆发与等电抑制期交替",
+            "等电状态提示近乎完全皮质沉默：最极端模式是等电状态，表明近乎完全皮质沉默"
+          ]
+        },
+        {
+          "heading": "频域分析",
+          "lines": [
+            "分解为δ（0.5–4 Hz）、θ（4–8 Hz）、α（8–13 Hz）、β（13–30 Hz）、γ（>30 Hz）频段：得到的功率谱密度描述信号功率在每个时期内分布于标准频带",
+            "采用短时傅里叶变换（STFT）对1–4 s时期计算功率谱密度：这是常用的短时傅里叶变换，分析连续的短时期（通常1–4 s）并部分重叠",
+            "频谱边缘频率95%（SEF95）随EEG变慢而下降：在全身麻醉期间，SEF95通常随EEG活动被较慢振荡主导而降低",
+            "连续时间窗口产生谱形图/密度谱数组（DSA）：计算谱分析在连续重叠时间窗口上得到谱形图，临床中通常显示为密度谱数组"
+          ]
+        }
+      ],
+      "stats": [],
+      "steps": [],
+      "items": [],
+      "image_ids": [],
+      "contrast": false,
+      "table": null,
+      "chart": null,
+      "chart_type": "bar",
+      "chart_title": "",
+      "callout": "",
+      "notes": ""
+    },
+    {
+      "sec": 2,
+      "title": "丙泊酚 ↑ 前叶α",
+      "layout": "cards",
+      "sub_title": "",
+      "bullets": [],
+      "blocks": [
+        {
+          "heading": "前叶α前移",
+          "lines": [
+            "α振荡向前移并在前叶区高度相干：在麻醉下，它们发生根本重组：向前移并在前叶区高度相干，称为α前移",
+            "前叶电极F8区分清醒与麻醉状态AUC 0.92 ± 0.04：前叶电极F8在32通道研究中区分清醒与麻醉状态的AUC为0.92 ± 0.04",
+            "四电极前叶蒙太奇与全21电极记录在VA‑ECMO后预后表现相当：四电极前叶蒙太奇在VA‑ECMO患者心脏骤停后的预后表现与全21电极记录相当"
+          ]
+        },
+        {
+          "heading": "爆发抑制倾向",
+          "lines": [
+            "丙泊酚诱发爆发抑制较吸入剂更常见：此模式在丙泊酚中比吸入剂更常见",
+            "爆发抑制由高幅度爆发和等电时期组成，深度随剂量增加：爆发抑制表现为高幅度爆发与等电抑制期交替；在更高浓度下EEG转向爆发抑制模式",
+            "线粒体功能障碍和ATP消耗减少在动物/计算模型中被牵涉：爆发抑制的生理机制尚不明确，但线粒体功能障碍、突触抑制次级的ATP消耗减少和脑代谢率降低已在动物和计算模型中被提及"
+          ]
+        }
+      ],
+      "stats": [],
+      "steps": [],
+      "items": [],
+      "image_ids": [],
+      "contrast": false,
+      "table": null,
+      "chart": null,
+      "chart_type": "bar",
+      "chart_title": "",
+      "callout": "",
+      "notes": ""
+    },
+    {
+      "sec": 2,
+      "title": "药物特异的EEG模式",
+      "layout": "two_col",
+      "sub_title": "",
+      "bullets": [],
+      "blocks": [
+        {
+          "heading": "GABAergic药物",
+          "lines": [
+            "丙泊酚：前叶α前移 + 爆发抑制",
+            "塞沃flurane：此外伴有前叶θ振荡相干"
+          ]
+        },
+        {
+          "heading": "非GABAergic药物",
+          "lines": [
+            "氯胺酮：↑ β和γ活动（NMDA拮抗）",
+            "右美托啉：睡眠样纺锤波（σ 12–16 Hz），类似非REM睡眠"
+          ]
+        }
+      ],
+      "stats": [],
+      "steps": [],
+      "items": [],
+      "image_ids": [],
+      "contrast": false,
+      "table": null,
+      "chart": null,
+      "chart_type": "bar",
+      "chart_title": "",
+      "callout": "",
+      "notes": ""
+    },
+    {
+      "sec": 3,
+      "title": "BIS 40–60 提示催眠",
+      "layout": "stats",
+      "sub_title": "",
+      "bullets": [
+        "EEG引导的药物滴定可将麻醉药使用量降低多达30%而不损害安全：此策略可将麻醉药消耗降低多达30%而不影响患者安全"
+      ],
+      "blocks": [],
+      "stats": [
+        {
+          "label": "BIS",
+          "value": "40–60",
+          "sub": "表示足够催眠"
+        },
+        {
+          "label": "Entropy",
+          "value": "40–60",
+          "sub": "表示足够催眠"
+        },
+        {
+          "label": "PSI",
+          "value": "25–50",
+          "sub": "表示足够催眠"
+        }
+      ],
+      "steps": [],
+      "items": [],
+      "image_ids": [],
+      "contrast": false,
+      "table": null,
+      "chart": null,
+      "chart_type": "bar",
+      "chart_title": "",
+      "callout": "",
+      "notes": ""
+    },
+    {
+      "sec": 4,
+      "title": "伪影限制EEG指数",
+      "layout": "grid",
+      "sub_title": "",
+      "bullets": [],
+      "blocks": [
+        {
+          "heading": "对伪影敏感",
+          "lines": [
+            "处理指数（BIS、Entropy、PSI）易受肌电和运动伪影影响：局限性包括对伪影的敏感性",
+            "五种商业监测仪对52段EEG记录的分析中，三分之二的建议不一致：对52段EEG记录的五种商业监测仪比较发现，三分之二的建议不一致"
+          ]
+        },
+        {
+          "heading": "药物特异效应",
+          "lines": [
+            "BIS与末端麻醉气体浓度关联弱：BIS常与末端麻醉气体（ETAG）浓度关联较差",
+            "BIS在氯胺酮中升高，与麻醉浓度无关：BIS在氯胺酮中独立于麻醉浓度而升高"
+          ]
+        },
+        {
+          "heading": "老年/认知受损者准确度降低",
+          "lines": [
+            "指数在老年或认知受损患者中的可靠性降低：老年或认知受损患者中指数准确度降低",
+            "老年人EEG功率降低2‑3倍导致深度估计偏离：老年人在丙泊酚或塞沃flurane麻醉下EEG振幅约为年轻成人的2‑3倍降低"
+          ]
+        },
+        {
+          "heading": "原始EEG+指数组合优先",
+          "lines": [
+            "原始EEG或密度谱数组与处理指数结合可改善解释：原始EEG或密度谱数组的解释与处理指数结合因此更可取",
+            "此方法需要特定培训，是常规采用的障碍：虽然这需要特定培训并代表常规采用的障碍"
+          ]
+        }
+      ],
+      "stats": [],
+      "steps": [],
+      "items": [],
+      "image_ids": [],
+      "contrast": false,
+      "table": null,
+      "chart": null,
+      "chart_type": "bar",
+      "chart_title": "",
+      "callout": "",
+      "notes": ""
+    },
+    {
+      "sec": 4,
+      "title": "爆发抑制 ↑ 谵妄风险41%",
+      "layout": "stats",
+      "sub_title": "",
+      "bullets": [],
+      "blocks": [],
+      "stats": [
+        {
+          "label": "爆发抑制",
+          "value": "+41 % RR",
+          "sub": "meta‑analysis显示术后谵妄相对风险增加"
+        },
+        {
+          "label": "每log‑分钟OR",
+          "value": "1.22 (99 % CI 1.06–1.40)",
+          "sub": "Fritz等调整后的谵妄 odds比"
+        }
+      ],
+      "steps": [],
+      "items": [],
+      "image_ids": [],
+      "contrast": false,
+      "table": null,
+      "chart": null,
+      "chart_type": "bar",
+      "chart_title": "",
+      "callout": "",
+      "notes": ""
+    },
+    {
+      "sec": 4,
+      "title": "低α功率 → 谵妄",
+      "layout": "bullets",
+      "sub_title": "",
+      "bullets": [
+        "前叶α功率降低预示更高爆发抑制倾向：Shao等表明前叶α功率降低与更高爆发抑制倾向显著相关，与年龄及其他因素无关，描述‘易损脑’表型",
+        "术中α功率降低与术后谵妄风险升高相关：降低的α功率和慢振荡已与术后谵妄风险增加相关联"
+      ],
+      "blocks": [],
+      "stats": [],
+      "steps": [],
+      "items": [],
+      "image_ids": [],
+      "contrast": false,
+      "table": null,
+      "chart": null,
+      "chart_type": "bar",
+      "chart_title": "",
+      "callout": "",
+      "notes": ""
+    },
+    {
+      "sec": 4,
+      "title": "认知 ↑ 谵妄",
+      "layout": "two_col",
+      "sub_title": "",
+      "bullets": [],
+      "blocks": [
+        {
+          "heading": "基线认知损伤 ↑ 谵妄风险",
+          "lines": [
+            "术前认知损伤使谵妄风险从18%升至35%：Fritz等表明术前认知损伤显著增加谵妄风险（35% vs. 18%）",
+            "约15%的谵妄风险直接归因于基线认知易损性：14.8%的谵妄风险直接归因于基线认知易损性"
+          ]
+        },
+        {
+          "heading": "爆发抑制介导的贡献甚微",
+          "lines": [
+            "爆发抑制仅介导约2.4%的认知损伤相关谵妄风险：爆发抑制仅介导此效应的一小部分（约2.4%）",
+            "预防一例谵妄需在约28个认知损伤患者中避免爆发抑制：因此，预防一例谵妄需在约28个认知损伤患者中避免EEG抑制"
+          ]
+        }
+      ],
+      "stats": [],
+      "steps": [],
+      "items": [],
+      "image_ids": [],
+      "contrast": true,
+      "table": null,
+      "chart": null,
+      "chart_type": "bar",
+      "chart_title": "",
+      "callout": "",
+      "notes": ""
+    },
+    {
+      "sec": 5,
+      "title": "老年EEG幅度 ↓ 与年龄",
+      "layout": "stats",
+      "sub_title": "",
+      "bullets": [],
+      "blocks": [],
+      "stats": [
+        {
+          "label": "老年人EEG幅度",
+          "value": "2‑3× 降低",
+          "sub": "vs. 年轻成人（丙泊酚/塞沃flurane）"
+        },
+        {
+          "label": "α功率下降＞慢波",
+          "value": "",
+          "sub": "老年人α功率下降幅度大于慢波；α相干性和峰频显著降低"
+        }
+      ],
+      "steps": [],
+      "items": [],
+      "image_ids": [],
+      "contrast": false,
+      "table": null,
+      "chart": null,
+      "chart_type": "bar",
+      "chart_title": "",
+      "callout": "",
+      "notes": ""
+    },
+    {
+      "sec": 5,
+      "title": "α功率 → 认知 AUC 0.79→0.95",
+      "layout": "numbered",
+      "sub_title": "",
+      "bullets": [],
+      "blocks": [],
+      "stats": [],
+      "steps": [],
+      "items": [
+        "前叶α功率预测术前认知损伤AUC 0.89（Touchard等）：术中丙泊酚需求与前叶α功率共同预测术前认知损伤AUC 0.89，优于单独使用年龄",
+        "将术中α功率加入术前风险模型（年龄、高血压、心血管史）使30‑月认知衰退AUC从0.79升至0.95：结合术前因素与术中α功率的预测模型使认知衰退的AUC从0.79（95%CI 0.72–0.80）提升至0.95（95%CI 0.91–0.98）"
+      ],
+      "image_ids": [],
+      "contrast": false,
+      "table": null,
+      "chart": null,
+      "chart_type": "bar",
+      "chart_title": "",
+      "callout": "",
+      "notes": ""
+    },
+    {
+      "sec": 6,
+      "title": "EEG‑ML 预测脑健康",
+      "layout": "bullets",
+      "sub_title": "",
+      "bullets": [
+        "术中EEG已作为常规麻醉监测采集，提供高质量信号用于机器学习脑健康筛查：术中EEG提供了更好的信号质量且已作为常规麻醉监测采集，使得无额外医疗系统成本的脆弱性评估成为可能",
+        "前瞻性研究（例如NCT05951764）旨在细化长期认知和心血管结果的预测；知情同意的伦理需求须慎重考虑：正在进行的前瞻性研究（如下肢骨科手术中的NCT05951764）正在考察术中EEG动态是否能进一步细化长期认知和心血管结果的预测；知情同意及伦理影响须慎重考虑"
+      ],
+      "blocks": [],
+      "stats": [],
+      "steps": [],
+      "items": [],
+      "image_ids": [],
+      "contrast": false,
+      "table": null,
+      "chart": null,
+      "chart_type": "bar",
+      "chart_title": "",
+      "callout": "",
+      "notes": ""
+    }
+  ],
+  "references": [
+    "de Rocquigny G, Jarrassier A, Vallée F, Cartailler J, El Ayeb K, Touchard C. EEG monitoring in the operating room: current uses and perspectives – a narrative review. Anaesthesia Crit Care Pain Med. 2026;45:101861. doi:10.1016/j.accpm.2026.101861"
+  ]
+}
