@@ -4,6 +4,7 @@ import io
 import json
 import math
 import re
+import time
 import urllib.parse
 import uuid
 
@@ -11,7 +12,7 @@ import pandas as pd
 import requests
 import streamlit as st
 from lxml import etree
-from openai import OpenAI
+from openai import APIStatusError, AuthenticationError, OpenAI, RateLimitError
 from PIL import Image
 from pptx import Presentation
 from pptx.chart.data import CategoryChartData
@@ -24,11 +25,10 @@ from pptx.util import Inches, Pt
 
 st.set_page_config(page_title="医学文献 → 学术汇报 PPT", page_icon="🩺", layout="wide")
 
-FREE_MODELS = [
-    "nvidia/nemotron-3-super-120b-a12b:free",
-    "qwen/qwen3.8-27b:free",
-    "google/gemma-4-31b-it:free",
+FREE_MODELS = [  # 联网获取失败时的备用列表；平时会实时拉取 OpenRouter 当前可用的免费模型
     "openrouter/free",
+    "nvidia/nemotron-3-super-120b-a12b:free",
+    "google/gemma-4-31b-it:free",
 ]
 PAID_MODELS = [
     "anthropic/claude-3.5-sonnet",
@@ -36,7 +36,6 @@ PAID_MODELS = [
     "openai/gpt-4o",
     "google/gemini-pro-1.5",
 ]
-ALL_MODELS = FREE_MODELS + PAID_MODELS
 
 # ---- 配色（参照参考 PPT）：浅灰底 + 深蓝 + 青蓝 + 珊瑚红 ----
 NAVY = RGBColor(0x1E, 0x3A, 0x66)
@@ -288,33 +287,79 @@ SYSTEM_PROMPT = """你是一位资深的医学科研汇报助手，负责把医�
 
 
 def extract_json(s: str):
+    """宽松解析：去掉围栏/思考标签，失败时用 json-repair 修复（可处理缺逗号、被截断等）。"""
+    s = re.sub(r"<think>.*?</think>", "", s, flags=re.S)
     s = re.sub(r"```(?:json)?", "", s)
-    a, b = s.find("{"), s.rfind("}")
-    if a < 0 or b < 0:
+    a = s.find("{")
+    if a < 0:
         raise ValueError("模型没有返回 JSON")
-    s = s[a : b + 1]
+    s = s[a:]
+    for cand in (s[: s.rfind("}") + 1], re.sub(r",\s*([}\]])", r"\1", s[: s.rfind("}") + 1])):
+        try:
+            return json.loads(cand)
+        except Exception:
+            pass
     try:
-        return json.loads(s)
-    except json.JSONDecodeError:
-        return json.loads(re.sub(r",\s*([}\]])", r"\1", s))
+        import json_repair
+
+        obj = json_repair.loads(s)
+        if isinstance(obj, dict) and obj.get("slides"):
+            return obj
+    except ImportError:
+        pass
+    raise ValueError("无法解析模型返回的 JSON")
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_free_models():
+    """实时获取 OpenRouter 当前的免费模型（按上下文长度从大到小），避免写死的模型 ID 过期。"""
+    try:
+        items = requests.get("https://openrouter.ai/api/v1/models", timeout=15).json()["data"]
+        free = [(m["id"], m.get("context_length") or 0) for m in items if m["id"].endswith(":free")]
+        free = [m for m in free if m[1] >= 32000]
+        free.sort(key=lambda m: m[1], reverse=True)
+        return [m[0] for m in free]
+    except Exception:
+        return []
 
 
 def call_llm(api_key, models, user_prompt, on_fail):
-    client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1", timeout=300)
+    """逐个模型尝试：限流(429)等待后重试；JSON 无效重试一次；模型不可用/出错则换下一个。"""
+    client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1", timeout=300, max_retries=0)
     for m in models:
-        try:
-            r = client.chat.completions.create(
-                model=m,
-                temperature=0.2,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": user_prompt},
-                ],
-            )
-            return extract_json(r.choices[0].message.content), m
-        except Exception as e:
-            on_fail(m, e)
-    raise RuntimeError("所有候选模型都调用失败，请检查 API Key、额度或换一个模型。")
+        for attempt in range(2):
+            try:
+                r = client.chat.completions.create(
+                    model=m,
+                    temperature=0.2,
+                    messages=[
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                )
+                return extract_json(r.choices[0].message.content or ""), m
+            except AuthenticationError:
+                raise RuntimeError("API Key 无效或已失效，请检查。")
+            except RateLimitError:
+                if attempt == 0:
+                    on_fail(m, "被限流(429)，8 秒后重试一次…")
+                    time.sleep(8)
+                    continue
+                on_fail(m, "仍被限流，换下一个模型")
+                break
+            except ValueError as e:  # JSON 无效
+                if attempt == 0:
+                    on_fail(m, f"{e}，重试一次…")
+                    continue
+                on_fail(m, f"{e}，换下一个模型")
+                break
+            except APIStatusError as e:
+                on_fail(m, f"不可用或出错（HTTP {e.status_code}），换下一个模型")
+                break
+            except Exception as e:
+                on_fail(m, f"{str(e)[:120]}，换下一个模型")
+                break
+    raise RuntimeError("所有候选模型都失败了：免费模型常被限流，请稍后再试，或在侧边栏换模型/填写自定义模型 ID。")
 
 
 # ============================================================================
@@ -1272,7 +1317,12 @@ def main():
         except Exception:
             secret_key = ""
         api_key = st.text_input("OpenRouter API Key", type="password", placeholder="sk-or-v1-...") or secret_key
-        model_name = st.selectbox("选择模型", ALL_MODELS, index=0)
+        free_live = fetch_free_models()
+        free_pool = free_live or FREE_MODELS
+        if "openrouter/free" not in free_pool:
+            free_pool = free_pool + ["openrouter/free"]
+        st.caption(f"已从 OpenRouter 实时获取 {len(free_live)} 个免费模型（上下文 ≥32k）" if free_live else "未能联网获取模型列表，使用内置备用列表")
+        model_name = st.selectbox("选择模型", free_pool + PAID_MODELS, index=0)
         custom_model = st.text_input("自定义模型 ID（可选，优先使用）", placeholder="如 anthropic/claude-sonnet-4.5")
         auto_fallback = st.checkbox("失败时自动尝试其他免费模型", True)
         max_chars = st.slider("送入模型的最大字符数", 10000, 120000, 45000, 5000,
@@ -1332,9 +1382,9 @@ def main():
                         f"- 额外要求：{extra.strip() or '无'}\n\n【图片清单】\n{img_desc}\n\n【文献正文】\n{text}"
                     )
                     first = custom_model.strip() or model_name
-                    models = [first] + ([m for m in FREE_MODELS if m != first] if auto_fallback else [])
+                    models = [first] + ([m for m in free_pool[:6] if m != first] if auto_fallback else [])
                     st.write(f"调用模型 `{first}` 生成大纲…")
-                    data, used = call_llm(api_key, models, user_prompt, lambda m, e: st.write(f"⚠️ `{m}` 失败：{str(e)[:160]}"))
+                    data, used = call_llm(api_key, models, user_prompt, lambda m, e: st.write(f"⚠️ `{m}`：{str(e)[:160]}"))
                     outline = normalize_outline(data, images)
                     if not outline["slides"]:
                         raise RuntimeError("模型返回的大纲为空，请重试或换模型。")
