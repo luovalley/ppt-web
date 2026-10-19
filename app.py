@@ -357,7 +357,7 @@ def extract_json(s: str):
     raise ValueError("无法解析模型返回的 JSON")
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=86400, show_spinner=False)
 def fetch_free_models():
     """实时获取 OpenRouter 当前的免费模型（按上下文长度从大到小），避免写死的模型 ID 过期。"""
     try:
@@ -368,6 +368,65 @@ def fetch_free_models():
         return [m[0] for m in free]
     except Exception:
         return []
+
+
+# ---- 医学/麻醉学术语对照表（luovalley/ppt-web glossary.md）----
+GLOSSARY_URL = "https://raw.githubusercontent.com/luovalley/ppt-web/main/glossary.md"
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def load_glossary():
+    """拉取并解析医学术语对照表：英文术语 -> 中文标准译法。
+    格式：`* English Term — 中文译法`，容错 tab 分隔与备注行。"""
+    try:
+        raw = requests.get(GLOSSARY_URL, timeout=20).text
+    except Exception:
+        return {}
+    gloss = {}
+    for line in raw.splitlines():
+        line = line.strip().lstrip("*").strip()
+        if not line or line.startswith("#") or line.startswith("-") or line.startswith("|"):
+            continue
+        # 匹配 "English — 中文" 或 "English\t中文"
+        m = re.match(r"^([A-Za-z][A-Za-z0-9\s\-\(\)/,]+?)\s*[—–\-]\s*([^\t]+?)\s*$", line)
+        if not m:
+            m = re.match(r"^([A-Za-z][A-Za-z0-9\s\-\(\)/,]+?)\t(.+?)\s*$", line)
+        if not m:
+            continue
+        en = m.group(1).strip()
+        zh = m.group(2).strip()
+        # 只保留英文部分为纯医学术语（去掉括号内备注），译法保留第一个 "/" 前的主译
+        if len(en) < 2 or len(zh) < 1:
+            continue
+        main_zh = zh.split("/")[0].strip()
+        # 去掉译法里的括号注释
+        main_zh = re.sub(r"\s*\([^)]*\)\s*", "", main_zh).strip()
+        if main_zh:
+            gloss[en.lower()] = main_zh
+    return gloss
+
+
+def pick_glossary_for_text(text, gloss, limit=120):
+    """扫描文献正文，挑出在术语表里出现的英文术语，按出现频次返回对照表。"""
+    if not gloss:
+        return ""
+    # 按术语长度从长到短排序，优先匹配多词术语（如 "Abdominal Compartment Syndrome"）
+    terms = sorted(gloss.keys(), key=len, reverse=True)
+    counts = {}
+    # 用一个临时文本，逐术语计数
+    lower = text.lower()
+    for en in terms:
+        # 用单词边界匹配，避免 "IVC" 命中 "IVCD"
+        pattern = r"(?<![a-z])" + re.escape(en) + r"(?![a-z])"
+        n = len(re.findall(pattern, lower))
+        if n > 0:
+            counts[en] = n
+    if not counts:
+        return ""
+    # 按频次排序，取前 limit 个
+    top = sorted(counts.items(), key=lambda x: -x[1])[:limit]
+    lines = [f"{en} — {gloss[en]}" for en, _ in top]
+    return "英文术语 — 中文标准译法（必须使用此译法，不要自创）：\n" + "\n".join(lines)
 
 
 def api_error_text(e):
@@ -1574,11 +1633,21 @@ def main():
                         for i, m in images.items()
                     ) or "（无可用图片）"
                     lang_req = {"与文献一致": "与文献语言一致", "中文": "全部使用中文（专业缩写保留英文）", "English": "全部使用英文"}[lang]
+
+                    # 加载医学术语对照表，挑出文献中实际出现的术语附给模型
+                    st.write("加载医学术语对照表…")
+                    gloss = load_glossary()
+                    gloss_block = pick_glossary_for_text(text, gloss, limit=120)
+                    if gloss_block:
+                        st.write(f"  · 命中 {gloss_block.count(chr(10)) - 1} 个文献中出现的术语")
+                    gloss_section = f"\n\n【医学术语标准译法】\n{gloss_block}\n" if gloss_block else ""
+
                     user_prompt = (
                         f"请为下面这篇医学文献生成完整的学术汇报内容（封面、章节目录、内容页、参考文献）。\n"
                         f"- 内容页约 {n_slides} 页（不含封面、目录和参考文献）\n- 语言：{lang_req}\n"
                         f"- 每个结论性要点都必须附带文献中的具体数据，数值逐一核对原文；版式要多样\n"
-                        f"- 额外要求：{extra.strip() or '无'}\n\n【图片清单】\n{img_desc}\n\n【文献正文】\n{text}"
+                        f"- 英文医学术语翻译成中文时，必须使用下面【医学术语标准译法】表中的译法，不要自创译法；表中未列出的再按医学惯例翻译\n"
+                        f"- 额外要求：{extra.strip() or '无'}\n\n【图片清单】\n{img_desc}\n{gloss_section}\n【文献正文】\n{text}"
                     )
                     first = custom_model.strip() or model_name
                     models = [first] + ([m for m in free_pool[:6] if m != first] if auto_fallback else [])
