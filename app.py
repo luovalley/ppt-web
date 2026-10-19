@@ -284,8 +284,8 @@ SYSTEM_PROMPT = """你是一位资深的医学科研汇报助手，长期给科�
 - grid：2×2 编号块。blocks 3-4 项：heading + 1-2 句论断。
 - cards：3-4 个并列卡片（无编号）。blocks：heading + 1-3 句论断。
 - stats：2-4 个关键数字或参数。stats 每项 {label, value 简短（如“>10%”“3.16 → 2.16”）, sub 用途/变化幅度}；可配 bullets 或 callout。
-- flow：流程/技术路线，3-5 步，steps {title, text}，最后一步为产出。
-- table：多环节/多指标对比（如围术期各环节的“措施/参数/证据等级”）。可重新加工：保留关键行列、合并或重命名表头；≤8 行 × 5 列，第一行表头，内容忠于原文。原文表格每行都要覆盖，行太多拆两页，每页都要写标题并带完整 table。
+- flow：流程/决策路径/技术路线，3-6 步，steps {title, text}，最后一步为产出。**触发条件（必须用 flow，不要用 bullets）**：① 文献描述了"术前→诱导→维持→术后"这类时序操作链；② 出现"如果 MAP<65 则…否则…""PPV>10% 提示容量反应性"这类判断分支；③ 给出了诊断/治疗决策树、算法、评分流程。判断节点的 title 写成问句或条件（如"MAP < 65 mmHg？"），text 写分支动作；普通步骤 title 写动作。
+- table：多环节/多指标对比。**触发条件（必须用 table，不要用 bullets 或 two_col）**：① 文献给了按"环节/时间点/分组"组织的建议表（如术前/诱导/维持/术后的措施+参数+证据等级）；② 原文本身就是表格（Table 1/2/3）；③ 要并列对比 ≥3 个分组/方案的多个维度。可重新加工：保留关键行列、合并或重命名表头；≤8 行 × 5 列，第一行表头，内容忠于原文。原文表格每行都要覆盖，行太多拆两页，每页都要写标题并带完整 table。**证据等级列**：如果是围术期建议表，最后一列写证据等级（A/B/C + 推荐强度），系统会自动上色。
 - image：使用图片清单里的原文图（image_ids 引用），bullets 作为“关键读数”。
 - chart：仅当文献明确给出 ≥3 个类别具体数值时使用，数值必须来自原文，严禁从图上目测估算。chart {type: bar/column/line, title, rows}，rows 第一行表头 ["类别","系列1",...]，其余每行 [类别, 数值, ...]。
 - numbered：结论、未来方向等，3-5 条，用 items，每条一句话且本身是一个完整判断。
@@ -890,6 +890,14 @@ def add_table(slide, rows, x, y, w, max_h):
     tbl.horz_banding = False
     for j in range(nc):
         tbl.columns[j].width = Inches(col_w[j])
+    # 证据等级色标：表头含"证据"时，单元格匹配 A/B/C 等级上色
+    evidence_col = None
+    for j, h in enumerate(rows[0]):
+        if "证据" in h or "等级" in h:
+            evidence_col = j
+            break
+    EVID_COLOR = {"A": RGBColor(0x2E, 0x7D, 0x32), "B": NAVY, "C": RGBColor(0x78, 0x84, 0x94)}
+
     for i, r in enumerate(rows):
         tbl.rows[i].height = Inches(hs[i])
         for j, val in enumerate(r):
@@ -907,6 +915,13 @@ def add_table(slide, rows, x, y, w, max_h):
                 style_run(run, font, True, WHITE)
             elif j == 0:
                 style_run(run, font, True, NAVY)
+            elif evidence_col is not None and j == evidence_col:
+                # 从单元格内容提取 A/B/C 等级首字母
+                m = re.match(r"^([ABC])", val.strip())
+                if m and m.group(1) in EVID_COLOR:
+                    style_run(run, font, True, EVID_COLOR[m.group(1)])
+                else:
+                    style_run(run, font, False, INK)
             else:
                 style_run(run, font, False, INK)
     return sum(hs)
@@ -1082,8 +1097,13 @@ def L_stats(slide, s, box, imgs):
 
 def L_flow(slide, s, box, imgs):
     x, y, w, h = box
-    steps = s["steps"][:5]
+    steps = s["steps"][:6]
     n = len(steps)
+    # 判断哪些步骤是"决策点"：title 含 如果/若/当/是否/?/？ 或 text 含分支
+    def is_decision(d):
+        t = (d.get("title", "") + d.get("text", ""))
+        return bool(re.search(r"如果|若|当.*时|是否|\?|？|≥|≤|<|>|提示|触发", t))
+
     ag = 0.55
     bw = (w - ag * (n - 1)) / n
     need = max(text_height([(d["text"], 0)], bw - 0.4, 13, indent=14) + 0.45 for d in steps)
@@ -1091,11 +1111,37 @@ def L_flow(slide, s, box, imgs):
     for i, d in enumerate(steps):
         bx = x + i * (bw + ag)
         last = i == n - 1 and n >= 3
-        rect(slide, bx, y + 0.1, bw, bh, CORAL_TINT if last else CARD)
-        tf = textbox(slide, bx + 0.18, y + 0.2, bw - 0.36, bh - 0.2, MSO_ANCHOR.MIDDLE)
-        t = d["title"] if re.match(r"^\d", d["title"]) else f"{i + 1}. {d['title']}"
-        para(tf, 0, t, 13, True, CORAL if last else NAVY, after=4)
-        para(tf, 1, d["text"], 13, last, CORAL if last else GRAY)
+        decision = is_decision(d)
+        # 决策点用菱形/六边形，终点用珊瑚色，普通步骤用卡片
+        if decision:
+            sh = slide.shapes.add_shape(MSO_SHAPE.DIAMOND, Inches(bx), Inches(y + 0.15), Inches(bw), Inches(bh - 0.1))
+            sh.fill.solid()
+            sh.fill.fore_color.rgb = RGBColor(0xFF, 0xF3, 0xE0)  # 浅橙黄
+            sh.line.color.rgb = RGBColor(0xE7, 0x6B, 0x6B)
+            sh.line.width = Pt(1.25)
+            sh.shadow.inherit = False
+            tf = sh.text_frame
+            tf.word_wrap = True
+            tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+            tf.margin_left = tf.margin_right = Inches(0.08)
+            tf.margin_top = tf.margin_bottom = Inches(0.04)
+            p = tf.paragraphs[0]
+            p.alignment = PP_ALIGN.CENTER
+            r = p.add_run()
+            r.text = d["title"]
+            style_run(r, 12, True, RGBColor(0xC0, 0x50, 0x20))
+            if d.get("text"):
+                p2 = tf.add_paragraph()
+                p2.alignment = PP_ALIGN.CENTER
+                r2 = p2.add_run()
+                r2.text = d["text"]
+                style_run(r2, 10, False, GRAY)
+        else:
+            rect(slide, bx, y + 0.1, bw, bh, CORAL_TINT if last else CARD)
+            tf = textbox(slide, bx + 0.18, y + 0.2, bw - 0.36, bh - 0.2, MSO_ANCHOR.MIDDLE)
+            t = d["title"] if re.match(r"^\d", d["title"]) else f"{i + 1}. {d['title']}"
+            para(tf, 0, t, 13, True, CORAL if last else NAVY, after=4)
+            para(tf, 1, d["text"], 13, last, CORAL if last else GRAY)
         if i < n - 1:
             add_text(slide, bx + bw, y + 0.1 + bh / 2 - 0.25, ag, 0.5, "→", 20, GRAY, align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE)
     lines = parse_bullets(s["bullets"])
