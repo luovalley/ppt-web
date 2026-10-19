@@ -323,9 +323,28 @@ def fetch_free_models():
         return []
 
 
+def api_error_text(e):
+    """提取 OpenRouter 返回的真实错误信息（含上游供应商的原始报错）。"""
+    msg = ""
+    body = getattr(e, "body", None)
+    if isinstance(body, dict):
+        err = body.get("error", body)
+        if isinstance(err, dict):
+            msg = str(err.get("message", ""))
+            raw = (err.get("metadata") or {}).get("raw")
+            if raw:
+                msg += f" | 上游：{str(raw)[:160]}"
+            if err.get("metadata", {}).get("reasons"):
+                msg += f" | 原因：{err['metadata']['reasons']}"
+    return msg or str(e)
+
+
 def call_llm(api_key, models, user_prompt, on_fail):
     """逐个模型尝试：限流(429)等待后重试；JSON 无效重试一次；模型不可用/出错则换下一个。"""
-    client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1", timeout=300, max_retries=0)
+    client = OpenAI(
+        api_key=api_key, base_url="https://openrouter.ai/api/v1", timeout=300, max_retries=0,
+        default_headers={"HTTP-Referer": "https://streamlit.io", "X-Title": "Medical Literature to PPT"},
+    )
     for m in models:
         for attempt in range(2):
             try:
@@ -354,7 +373,12 @@ def call_llm(api_key, models, user_prompt, on_fail):
                 on_fail(m, f"{e}，换下一个模型")
                 break
             except APIStatusError as e:
-                on_fail(m, f"不可用或出错（HTTP {e.status_code}），换下一个模型")
+                hint = {
+                    403: "（常见原因：输入被内容审核拦截、账号隐私/数据策略限制、或服务器所在地区受限）",
+                    404: "（模型已下架或与隐私设置不匹配，可到 openrouter.ai/settings/privacy 检查）",
+                    402: "（额度不足）",
+                }.get(e.status_code, "")
+                on_fail(m, f"HTTP {e.status_code}：{api_error_text(e)[:260]}{hint}，换下一个模型")
                 break
             except Exception as e:
                 on_fail(m, f"{str(e)[:120]}，换下一个模型")
