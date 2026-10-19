@@ -26,8 +26,8 @@ from pptx.util import Inches, Pt
 st.set_page_config(page_title="医学文献 → 学术汇报 PPT", page_icon="🩺", layout="wide")
 
 FREE_MODELS = [  # 联网获取失败时的备用列表；平时会实时拉取 OpenRouter 当前可用的免费模型
-    "openrouter/free",
     "nvidia/nemotron-3-super-120b-a12b:free",
+    "openrouter/free",
     "google/gemma-4-31b-it:free",
 ]
 PAID_MODELS = [
