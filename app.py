@@ -58,7 +58,11 @@ Y0, Y1 = 2.15, 6.85
 
 LAYOUTS = {
     "bullets": "要点列表",
+    "abstract": "摘要（段落 + 关键词）",
+    "pillars": "编号并列柱（01/02/03）",
+    "chains": "链式通路（A→B→C）",
     "two_col": "左右分栏（对比）",
+    "grid": "2×2 编号块",
     "cards": "卡片并列",
     "stats": "大数字指标",
     "flow": "流程步骤",
@@ -67,6 +71,8 @@ LAYOUTS = {
     "table": "表格",
     "numbered": "编号结论",
 }
+
+BLOCK_LAYOUTS = ("two_col", "cards", "abstract", "pillars", "chains", "grid")
 
 CAP_RE = re.compile(r"^\s*(fig(ure)?\.?\s*\d+|supplementary fig|图\s*\d+|附图)", re.I)
 MIN_SIDE, MIN_AREA = 120, 30000
@@ -232,53 +238,93 @@ def strip_references(text: str) -> str:
 # ============================================================================
 # 二、大模型生成大纲（JSON）
 # ============================================================================
-SYSTEM_PROMPT = """你是一位资深的医学科研汇报助手，负责把医学文献整理成「组会/学术汇报」幻灯片的完整内容。风格参照高质量的医学期刊文献解读：结论先行、数据说话、版式多样。
+SYSTEM_PROMPT = """你是一位资深的医学科研汇报助手，长期给科室组会和学术会议写 slides。你写的 PPT 被主任评价为“干净、有判断、不注水”。现在把一篇医学文献整理成完整的学术汇报内容。
 
-【硬性规则】
-1. 内容只能来自文献，严禁编造；数值、P 值、置信区间、样本量等必须与原文一致。文献没有报告的写“原文未报告”，不得估算。
-2. 页面标题必须是「结论式标题」（≤28 字），尽量带关键数字，例如“剂量下降 32%，但脑暴露仅下降 17%”，不要写“结果”“讨论”这类空标题。
-3. 每个结论都要有具体数据佐证（n、百分比、均值±SD 或中位数(IQR)、HR/OR/RR/MD、95%CI、P 值）；每条要点不超过约 60 字（英文约 35 词），形式为「结论 + 数据」。
-   - 背景：流行病学数据说明问题重要性（文献中有才写）；指出证据缺口，最后点明“本研究要回答的问题”。
-   - 方法：研究类型、样本量、纳排标准、分组、随访、主要/次要终点、统计方法。
-   - 结果：基线、主要终点、次要终点、亚组、安全性分别呈现，数值逐一核对原文。
-   - 讨论/意义：用本研究数据支撑论点，再对比既往研究，说明临床意义。
-   - 局限：写具体的局限（样本量、设计、随访、偏倚、外推性），并区分“已证实”与“尚未确定”。
-4. 版面类型（layout）要多样，按内容选择，不要整篇都用 bullets：
-   - two_col：二元对比（已知/未知、PD/PK、现状/方向、已证实/尚未确定）。用 blocks，2 栏，每栏有 heading 和若干 bullets。
-   - cards：3-4 个并列要点（如三项敏感性分析/三类亚组）。用 blocks，每项 heading + 1-3 句话。
-   - stats：2-4 个关键数字。用 stats，每项 {label 指标名, value 简短数值如“3.16 → 2.16”或“250,640”, sub 变化幅度/补充说明}；可配 bullets 或 callout 解读。
-   - flow：研究流程/技术路线，3-5 步，用 steps，每步 {title, text}，最后一步为最终产出；可配 sub_title + bullets 说明关键指标。
-   - image：使用「图片清单」中的原文图片，通过 image_ids 引用；bullets 作为“关键读数”（带数据）。
-   - chart：仅当文献正文或表格中明确给出 ≥3 个类别的具体数值时使用，数值必须来自原文，严禁从图上目测估算。用 chart {type: bar(横向条形)/column(柱状)/line(折线), title, rows}，rows 第一行是表头 [“类别”, “系列1”, ...]，其余每行 [类别, 数值, ...]；bullets 作为“关键读数”。
-   - table：多组/多指标对比。用 table.rows，第一行为表头，可重新加工：只保留关键行列、合并或重命名表头、必要时增加“相对变化”之类的派生列（只做简单且可由原文数值直接算出的计算），建议不超过 8 行 × 6 列；数值必须忠于原文。
-   - numbered：结论页，3-5 条，用 items，每条一句话并含关键数据。
-   - bullets：常规要点（3-6 条）。
-5. 推荐结构：背景(1-2 页) → 方法(2 页，含 flow 或 stats) → 结果(占多数，用 stats/image/chart/table 组合) → 讨论与临床意义(1-2 页) → 局限性(1 页，two_col) → 结论(1 页，numbered)。综述/指南类按主题逻辑组织。
-6. sections 是目录章节（3-5 个，每个有 title 和一句话 subtitle）；每页用 sec 指向章节序号（从 1 开始）。
-7. callout 是页面底部的“关键发现/核心启示”一句话（≤80 字，含数据），重要页面加，其余留空字符串。
-8. notes 是口语化的完整讲稿（3-6 句话），像汇报人在台上讲述：解释数据含义、强调重点、说明数据来源（如“数据来自 Table 2、第 5 页”）。
-9. 图片：只能使用图片清单里的图，不要要求生成任何新图片；与主题无关的图不要用。
-10. 只输出一个合法 JSON 对象，不要任何解释，不要 markdown 代码围栏；字符串中的换行用 \\n。
+【写作总原则——先读这一段，再动笔】
+1. 一页一个核心论断：读者扫一眼标题就知道这页要论证什么；标题之后所有要点都在支撑这个论断，不堆砌无关信息。
+2. 论断先行，证据紧随：每条要点写成“判断 + 关键证据/参数”的句式，不要先铺背景再给结论。
+   - 反例（流水账，禁用）：“老年人压力感受器敏感性下降。”“麻醉药物会扩张血管。”“最终导致血压下降。”
+   - 正例（有判断，推荐）：“压力感受器放电频率下降，使麻醉后反射性交感代偿失灵。”“舒张功能受限使 CO 对前负荷变化高度敏感——回心血量轻微下降即可触发低血压。”
+3. 信息要增量：相邻两条要点不许同义反复；能合并的合并，能拆成更具体的就别写笼统话。
+4. 禁用 AI 套话与空连接词：不要“综上所述/值得注意的是/不可否认/由此可见/首先其次最后/在当今社会/随着……的发展”；不要在每条开头加“关于/对于/在……方面”。
+5. 书面语但不端着：写 slides 正文用简洁陈述句，少用“进行、开展、实施、相关、极具重要意义”这类大词；剂量、单位、阈值按医学惯例写全（0.05 µg·kg⁻¹·min⁻¹、MAP ≥ 65 mmHg、PPV > 10%）。
+6. 区分事实与推断：文献直接报告的写事实；你整理出的因果关系用“提示/可能/提示与……相关”措辞，不要把综述性推测写成定论。
+
+【第一步：判断文献类型，决定整体结构】
+- 原始研究（RCT、队列、病例对照等）：背景与证据缺口 → 方法 → 结果（占多数）→ 讨论与意义 → 局限性 → 结论。
+- 综述 / 指南 / 共识 / 知识更新：不要套用“方法-结果”结构，沿用文献自身章节顺序。典型顺序：摘要与关键词 → 背景与近年演进 → 机制 → 核心争议（正反方 + 未解决困境）→ 方法学瓶颈 → 临床转化建议（术前/诱导/维持/术后）→ 证据边界（已形成共识 vs 尚未确定）→ 未来方向。
+- 其他类型按其内在逻辑组织。
+
+【内容完整性】
+1. 文献中每个有实质内容的章节都必须有对应幻灯片，不得遗漏（机制、方法学瓶颈、每一条争议、建议表格每一行、未来方向每一条）。页数不够时合并相近内容，绝不能丢弃整章。
+2. 每页 3-6 个信息点，每点 1-2 句（≤60 字），写出文献里具体的机制、观点、参数、剂量、阈值、流程；不要只写“存在一定关联”“具有重要意义”这种空话。
+3. 每页必须有标题和实际内容，不允许空页或只有标题。
+
+【标题写法——最重要的一节】
+标题必须是结论句或明确的研究问题，≤28 字，让读者不看正文也能抓住本页判断。
+- 好标题：“老年 PIH 高发的三大生理归因”“争论一：术中 MAP 目标值如何设定？”“诱导前 5 min 启动去甲肾上腺素可减少血压波动”“四条通路共同决定术后 AKI 风险”。
+- 坏标题（禁用）：“结果”“讨论”“机制部分”“关于低血压”“临床意义”“方法学”。
+- 数字必须进标题时写完整：“MAP < 65 mmHg 持续 > 1 min 即触发再评估”。
+
+【sections 的 subtitle】
+每个章节的 subtitle 用一句话点出“本章要回答什么问题”，不要重复标题。
+- 例：title="背景与生理基础"，subtitle="为什么老年患者在麻醉诱导后更容易低血压？"
+
+【数据与证据】
+4. 内容只能来自文献，严禁编造数据、试验名、文献、剂量、阈值或建议；文献没有的不要补。允许做解释性整理（机制写成因果链、争议整理成正反方对比）。
+5. 有数据时写具体数值（n、%、均值±SD、中位数(IQR)、HR/OR/RR/MD、95%CI、P 值），与原文逐一一致。
+6. 没有量化数据时，直接写文献里的机制、观点、参数和建议；不要在每条要点后重复“原文未报告”。证据局限只在【摘要页、证据边界页、结论页】集中说明一次，其余页最多用 callout 一句话提示（如“以下为专家共识，证据等级 C”）。文献标注了证据等级/推荐强度的建议，要在对应页面标出。
+
+【版式 layout】（按内容选，不要整篇都用 bullets；相邻页尽量换版式）
+- abstract：摘要页。blocks 为带标签段落（heading=标签，如“临床问题/研究焦点/证据边界”，bullets=1-2 句话）；items 为关键词（中英文）。
+- pillars：2-4 个并列要点，带 01/02/03 编号。blocks：heading + 1-3 句论断。
+- chains：多条因果链。blocks 每项一条链：heading=链名（如“通路 A · 神经反射”），bullets=按顺序的步骤（3-5 步，每步 ≤14 字），最后一步是结局。
+- two_col：二元对比（正方/反方、已知/未知、已共识/尚未确定）。blocks 为 2 栏；争议类 contrast=true，“未解决的困境”写进 callout。
+- grid：2×2 编号块。blocks 3-4 项：heading + 1-2 句论断。
+- cards：3-4 个并列卡片（无编号）。blocks：heading + 1-3 句论断。
+- stats：2-4 个关键数字或参数。stats 每项 {label, value 简短（如“>10%”“3.16 → 2.16”）, sub 用途/变化幅度}；可配 bullets 或 callout。
+- flow：流程/技术路线，3-5 步，steps {title, text}，最后一步为产出。
+- table：多环节/多指标对比（如围术期各环节的“措施/参数/证据等级”）。可重新加工：保留关键行列、合并或重命名表头；≤8 行 × 5 列，第一行表头，内容忠于原文。原文表格每行都要覆盖，行太多拆两页，每页都要写标题并带完整 table。
+- image：使用图片清单里的原文图（image_ids 引用），bullets 作为“关键读数”。
+- chart：仅当文献明确给出 ≥3 个类别具体数值时使用，数值必须来自原文，严禁从图上目测估算。chart {type: bar/column/line, title, rows}，rows 第一行表头 ["类别","系列1",...]，其余每行 [类别, 数值, ...]。
+- numbered：结论、未来方向等，3-5 条，用 items，每条一句话且本身是一个完整判断。
+- bullets：常规要点（3-6 条）。
+
+【其他字段】
+7. sections 是目录章节（4-6 个，每个有 title 和一句话 subtitle；综述类沿用文献自身章节）；每页用 sec 指向章节序号（从 1 开始）。
+8. callout 是页面底部一句话要点/提示（≤80 字），重要页面加，其余留空字符串。
+9. notes 是口语化讲稿（3-6 句话），像站在台上对着主任讲：先承接上一页（“刚才讲了……，这一页我们看……”），再用一句大白话解释本页判断为什么重要，最后点一下证据出处（“见建议表格第 3 行”“数据来自 Table 2”）。不要照念 bullets，不要用书面长句。
+10. 图片：只能用图片清单里的图，不要要求生成新图；无关的图不要用。
+11. cover：kicker=文献类型 + 年份范围或期刊（如“深度综述 · 2021—2026”）；title=封面标题，可用 \\n 分行（每行≤14 字）；meta=一句话副标题（如“从机制、监测到闭环管理的全景梳理”）和作者单位（可多行）；foot=关键词或研究样本概括。
+12. 只输出一个合法 JSON 对象，不要任何解释，不要 markdown 代码围栏；字符串中的换行用 \\n；所有字段值使用上面给出的名称和结构。
+
+【自检——输出前在心里过一遍】
+- 每个标题都是结论句，不是章节名？
+- 每条 bullets 都有判断 + 具体参数/数字，不是流水账？
+- 有没有出现“综上所述/值得注意的是/首先其次”这类套话？出现就删掉重写。
+- 相邻页版式是否换过？是否有 1-2 页真的用了 chains/two_col/table/chart 而不是全部 bullets？
+- notes 是否像人在说话，而不是正文复读？
 
 【JSON 结构】（不用的字段可省略或给空值）
 {
-  "cover": {"kicker": "期刊名 · 年份", "title": "封面标题，可用\\n分行，每行不超过 14 字", "meta": "第一作者, 学位\\n单位", "foot": "研究样本/设计的一句话概括（含关键数字）"},
-  "sections": [{"title": "研究背景与证据缺口", "subtitle": "一句话副标题"}],
+  "cover": {"kicker": "…", "title": "…", "meta": "…", "foot": "…"},
+  "sections": [{"title": "背景与生理基础", "subtitle": "一句话点出本章要回答的问题"}],
   "slides": [
     {
       "sec": 1,
-      "title": "结论式标题",
+      "title": "结论式标题（≤28 字）",
       "layout": "two_col",
+      "contrast": false,
       "sub_title": "",
-      "bullets": ["结论 + 数据"],
-      "blocks": [{"heading": "已知：…", "bullets": ["…"]}, {"heading": "未知：…", "bullets": ["…"]}],
+      "bullets": ["判断 + 证据"],
+      "blocks": [{"heading": "栏目/步骤组标题", "bullets": ["判断 + 证据"]}],
       "stats": [{"label": "指标名", "value": "3.16 → 2.16", "sub": "下降 32%"}],
-      "steps": [{"title": "给药提取", "text": "说明"}],
-      "items": ["结论一句话"],
+      "steps": [{"title": "步骤名", "text": "说明"}],
+      "items": ["完整判断句"],
       "image_ids": [1],
-      "table": {"rows": [["指标", "A 组", "B 组"], ["…", "…", "…"]]},
-      "chart": {"type": "bar", "title": "图表标题（含单位）", "rows": [["年龄组", "超额(%)"], ["18-24", "10"], ["25-34", "19"], ["35-44", "27"]]},
-      "callout": "关键发现：…",
+      "table": {"rows": [["环节", "措施", "证据等级"], ["…", "…", "…"]]},
+      "chart": {"type": "bar", "title": "标题（含单位）", "rows": [["类别", "系列1"], ["A", "10"], ["B", "20"], ["C", "30"]]},
+      "callout": "…",
       "notes": "口语化讲稿"
     }
   ],
@@ -416,6 +462,11 @@ def norm_rows(t):
         rows = t
     if not rows:
         return None
+    if isinstance(rows, list) and rows and isinstance(rows[0], dict):  # 兼容 [{列名: 值}, ...]
+        keys = []
+        for r in rows:
+            keys += [k for k in r if k not in keys]
+        rows = [keys] + [[r.get(k, "") for k in keys] for r in rows]
     rows = [[str(c) for c in r] for r in rows if isinstance(r, (list, tuple))]
     nc = max((len(r) for r in rows), default=0)
     if not nc:
@@ -451,12 +502,22 @@ def new_slide(**kw):
     return s
 
 
+def parse_blocks_json(v):
+    out = []
+    for b in as_list(v):
+        if isinstance(b, dict):
+            out.append(dict(
+                heading=str(b.get("heading") or b.get("title") or ""),
+                lines=str_lines(b.get("bullets") or b.get("lines") or b.get("text") or b.get("steps")),
+            ))
+        elif isinstance(b, str) and b.strip():
+            out.append(dict(heading="", lines=[b.strip()]))
+    return out
+
+
 def normalize_slide(x, images, nsec):
     bullets = str_lines(x.get("bullets"))
-    blocks = [
-        dict(heading=str(b.get("heading", "")), lines=str_lines(b.get("bullets") or b.get("lines") or b.get("text")))
-        for b in as_list(x.get("blocks")) if isinstance(b, dict)
-    ]
+    blocks = parse_blocks_json(x.get("blocks"))
     stats = [
         dict(label=str(d.get("label", "")), value=str(d.get("value", "")), sub=str(d.get("sub", "")))
         for d in as_list(x.get("stats")) if isinstance(d, dict)
@@ -465,32 +526,43 @@ def normalize_slide(x, images, nsec):
         dict(title=str(d.get("title", "")), text=str(d.get("text", "")))
         for d in as_list(x.get("steps")) if isinstance(d, dict)
     ]
-    items = str_lines(x.get("items"))
+    items = str_lines(x.get("items") or x.get("keywords"))
     ids = [to_int(i) for i in as_list(x.get("image_ids"))]
     ids = [i for i in ids if i in images]
     table = norm_rows(x.get("table"))
     chart, ctype, ctitle = norm_chart(x.get("chart"))
 
+    # 没有任何实质内容的页面直接丢弃（避免出现空白页）
+    if not (bullets or blocks or stats or steps or items or ids or table or chart):
+        return None
+
     layout = x.get("layout")
     if layout not in LAYOUTS:
         layout = ("image" if ids else "table" if table else "chart" if chart else "two_col" if blocks
                   else "stats" if stats else "flow" if steps else "numbered" if items else "bullets")
-    # 版式与数据不匹配时的兜底
     if ids and layout not in ("image", "table", "bullets"):
         if not bullets:
             bullets = [l for b in blocks for l in b["lines"]]
         layout = "image"
-    need = {"table": table, "chart": chart, "two_col": blocks, "cards": blocks, "stats": stats, "flow": steps, "numbered": items}
+    need = {"table": table, "chart": chart, "stats": stats, "flow": steps, "numbered": items}
+    need.update({k: blocks for k in BLOCK_LAYOUTS})
     if layout in need and not need[layout]:
         layout = "bullets"
     if layout == "bullets" and not bullets:
         bullets = [l for b in blocks for l in b["lines"]] or items or [d["text"] for d in steps]
+    if layout == "bullets" and not bullets:
+        return None
 
+    title = str(x.get("title", "") or "").strip()
+    if not title:  # 标题缺失时从内容推断
+        title = (str(x.get("sub_title") or "").strip() or (blocks[0]["heading"] if blocks else "")
+                 or (bullets[0][:24] if bullets else "") or "（请填写标题）")
     sec = to_int(x.get("sec")) or 0
     return new_slide(
-        sec=sec if 0 <= sec <= nsec else 0, title=str(x.get("title", "")), layout=layout,
+        sec=sec if 0 <= sec <= nsec else 0, title=title, layout=layout,
         sub_title=str(x.get("sub_title", "") or ""), bullets=bullets, blocks=blocks, stats=stats, steps=steps,
         items=items, image_ids=ids, table=table, chart=chart, chart_type=ctype, chart_title=ctitle,
+        contrast=bool(x.get("contrast", False)),
         callout=str(x.get("callout", "") or ""), notes=str(x.get("notes", "") or ""),
     )
 
@@ -506,7 +578,7 @@ def normalize_outline(data, images):
         dict(title=str(x.get("title", "")), subtitle=str(x.get("subtitle", "")))
         for x in as_list(data.get("sections")) if isinstance(x, dict)
     ]
-    slides = [normalize_slide(x, images, len(secs)) for x in as_list(data.get("slides")) if isinstance(x, dict)]
+    slides = [t for t in (normalize_slide(x, images, len(secs)) for x in as_list(data.get("slides")) if isinstance(x, dict)) if t]
     refs = [str(r) for r in as_list(data.get("references")) if str(r).strip()]
     return dict(
         uid=uuid.uuid4().hex[:8], cover=cover, sections=secs, slides=slides, references=refs,
