@@ -1100,9 +1100,107 @@ def L_numbered(slide, s, box, imgs):
         add_text(slide, x + 1.3, ry, w - 1.3, rh, t, size, NAVY, True, anchor=MSO_ANCHOR.MIDDLE)
 
 
+def L_grid(slide, s, box, imgs):
+    """2×2 编号块：blocks 3-4 项，每项 heading + lines。"""
+    x, y, w, h = box
+    blocks = s["blocks"][:4]
+    n = len(blocks)
+    if n == 1:
+        cols, rows = 1, 1
+    elif n == 2:
+        cols, rows = 2, 1
+    elif n == 3:
+        cols, rows = 3, 1
+    else:
+        cols, rows = 2, 2
+    gap = 0.45
+    cw = (w - gap * (cols - 1)) / cols
+    ch = (h - gap * (rows - 1)) / rows
+    for i, b in enumerate(blocks):
+        r, c = divmod(i, cols)
+        cx = x + c * (cw + gap)
+        cy = y + r * (ch + gap)
+        add_text(slide, cx, cy, 0.9, 0.5, f"{i + 1:02d}", 26, CYAN, True, anchor=MSO_ANCHOR.TOP)
+        add_text(slide, cx + 1.0, cy, cw - 1.0, 0.4, b["heading"], 15, NAVY, True)
+        lines = parse_bullets(b["lines"])
+        if lines:
+            add_bullets(slide, cx + 1.0, cy + 0.5, cw - 1.0, ch - 0.5, lines, max_size=13)
+
+
+def L_pillars(slide, s, box, imgs):
+    """2-4 个并列编号柱：blocks 每项 heading + lines，顶部大编号。"""
+    x, y, w, h = box
+    blocks = s["blocks"][:4]
+    n = len(blocks) or 1
+    gap = 0.5
+    cw = (w - gap * (n - 1)) / n
+    for i, b in enumerate(blocks):
+        cx = x + i * (cw + gap)
+        add_text(slide, cx, y, cw, 0.6, f"{i + 1:02d}", 34, NAVY, True)
+        rect(slide, cx, y + 0.7, 0.6, 0.04, CORAL)
+        add_text(slide, cx, y + 0.85, cw, 0.5, b["heading"], 15, NAVY, True)
+        lines = parse_bullets(b["lines"])
+        if lines:
+            add_bullets(slide, cx, y + 1.4, cw, h - 1.4, lines, max_size=13)
+
+
+def L_chains(slide, s, box, imgs):
+    """多条因果链：每条链 heading + 步骤 bullets（3-5 步，步骤间用 → 连接）。"""
+    x, y, w, h = box
+    blocks = s["blocks"][:4]
+    n = len(blocks)
+    rh = h / max(n, 1)
+    for i, b in enumerate(blocks):
+        ry = y + i * rh
+        add_text(slide, x, ry, 1.6, 0.35, b["heading"], 13, NAVY, True)
+        steps = [l.strip().lstrip("-–•·*").strip() for l in b["lines"] if l.strip()]
+        if not steps:
+            continue
+        # 横向排步骤，用 → 连接
+        seg_w = (w - 1.8 - 0.3 * (len(steps) - 1)) / len(steps)
+        sx = x + 1.8
+        for k, step in enumerate(steps):
+            size = next((z for z in (12, 11, 10) if text_w(step, z) <= seg_w * 72 - 6), 10)
+            color = CORAL if k == len(steps) - 1 else GRAY
+            add_text(slide, sx + k * (seg_w + 0.3), ry, seg_w, 0.5, step, size, color,
+                     bold=(k == len(steps) - 1), anchor=MSO_ANCHOR.MIDDLE)
+            if k < len(steps) - 1:
+                add_text(slide, sx + k * (seg_w + 0.3) + seg_w, ry, 0.3, 0.5, "→", 14, GRAY,
+                         align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE)
+        if i < n - 1:
+            rect(slide, x, ry + rh - 0.02, w, 0.01, LINE)
+
+
+def L_abstract(slide, s, box, imgs):
+    """摘要页：左栏 blocks（带标签段落），右栏 items 关键词。"""
+    x, y, w, h = box
+    blocks = s["blocks"]
+    items = s["items"]
+    side = 2.6 if items else 0
+    lw = w - side - 0.4 if items else w
+    cy = y
+    for b in blocks:
+        if b["heading"]:
+            add_text(slide, x, cy, lw, 0.35, b["heading"], 14, NAVY, True)
+            cy += 0.4
+        lines = b["lines"]
+        if lines:
+            tf = textbox(slide, x, cy, lw, 0.3 * len(lines) + 0.2)
+            for k, l in enumerate(lines):
+                para(tf, k, l.strip(), 13, False, GRAY, after=4)
+            cy += 0.32 * len(lines) + 0.15
+    if items:
+        add_text(slide, x + lw + 0.4, y, side, 0.35, "关键词", 13, NAVY, True)
+        rect(slide, x + lw + 0.4, y + 0.4, 0.8, 0.03, CORAL)
+        tf = textbox(slide, x + lw + 0.4, y + 0.55, side, h - 0.55)
+        for k, it in enumerate(items):
+            para(tf, k, it.strip(), 12, False, GRAY, after=6)
+
+
 LAYOUT_FUNCS = dict(
     bullets=L_bullets, image=L_image, chart=L_chart, table=L_table, stats=L_stats,
     flow=L_flow, cards=L_cards, two_col=L_two_col, numbered=L_numbered,
+    grid=L_grid, pillars=L_pillars, chains=L_chains, abstract=L_abstract,
 )
 
 
