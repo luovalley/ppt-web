@@ -25,8 +25,9 @@ from pptx.util import Inches, Pt
 
 st.set_page_config(page_title="医学文献 → 学术汇报 PPT", page_icon="🩺", layout="wide")
 
+DEFAULT_MODEL = "nvidia/nemotron-3-super-120b-a12b:free"
 FREE_MODELS = [  # 联网获取失败时的备用列表；平时会实时拉取 OpenRouter 当前可用的免费模型
-    "nvidia/nemotron-3-super-120b-a12b:free",
+    DEFAULT_MODEL,
     "openrouter/free",
     "google/gemma-4-31b-it:free",
 ]
@@ -1415,10 +1416,14 @@ def main():
         api_key = st.text_input("OpenRouter API Key", type="password", placeholder="sk-or-v1-...") or secret_key
         free_live = fetch_free_models()
         free_pool = free_live or FREE_MODELS
+        if DEFAULT_MODEL not in free_pool:
+            free_pool = [DEFAULT_MODEL] + free_pool
         if "openrouter/free" not in free_pool:
             free_pool = free_pool + ["openrouter/free"]
         st.caption(f"已从 OpenRouter 实时获取 {len(free_live)} 个免费模型（上下文 ≥32k）" if free_live else "未能联网获取模型列表，使用内置备用列表")
-        model_name = st.selectbox("选择模型", free_pool + PAID_MODELS, index=0)
+        _model_choices = free_pool + PAID_MODELS
+        _default_idx = _model_choices.index(DEFAULT_MODEL) if DEFAULT_MODEL in _model_choices else 0
+        model_name = st.selectbox("选择模型", _model_choices, index=_default_idx)
         custom_model = st.text_input("自定义模型 ID（可选，优先使用）", placeholder="如 anthropic/claude-sonnet-4.5")
         auto_fallback = st.checkbox("失败时自动尝试其他免费模型", True)
         max_chars = st.slider("送入模型的最大字符数", 10000, 120000, 45000, 5000,
