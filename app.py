@@ -1678,7 +1678,7 @@ def main():
                         f"图片{i}: " + (f"第{m['page']}页; " if m["page"] else "") + f"{m['w']}x{m['h']}; 原文图注: {m['caption'] or '无'}"
                         for i, m in images.items()
                     ) or "（无可用图片）"
-                    lang_req = {"中文":"中文": "全部使用中文（专业缩写保留英文）", "English": "全部使用英文"}[lang]
+                    lang_req = {"中文": "全部使用中文（专业缩写保留英文）", "English": "全部使用英文"}[lang]
 
                     # 加载医学术语对照表，挑出文献中实际出现的术语附给模型
                     st.write("加载医学术语对照表…")
