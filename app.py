@@ -357,17 +357,65 @@ def extract_json(s: str):
     raise ValueError("无法解析模型返回的 JSON")
 
 
-@st.cache_data(ttl=86400, show_spinner=False)
-def fetch_free_models():
-    """实时获取 OpenRouter 当前的免费模型（按上下文长度从大到小），避免写死的模型 ID 过期。"""
+def _price(v):
     try:
-        items = requests.get("https://openrouter.ai/api/v1/models", timeout=15).json()["data"]
-        free = [(m["id"], m.get("context_length") or 0) for m in items if m["id"].endswith(":free")]
-        free = [m for m in free if m[1] >= 32000]
-        free.sort(key=lambda m: m[1], reverse=True)
-        return [m[0] for m in free]
-    except Exception:
-        return []
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def model_kind(m):
+    """粗分模型用途：chat（通用对话/写作）、embed（嵌入）、rerank（重排）、safety（内容审核）、code（代码专用）。"""
+    text = f"{m.get('id', '')} {m.get('name', '')}".lower()
+    if "embed" in text:
+        return "embed"
+    if "rerank" in text:
+        return "rerank"
+    if any(k in text for k in ("safety", "guard", "moderation")):
+        return "safety"
+    desc = str(m.get("description") or "").lower()
+    if re.search(r"(^|[-/ ])(code|coder)([-: ]|$)", text) or "coding agent" in desc:
+        return "code"
+    return "chat"
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_free_models():
+    """从 OpenRouter 官方接口拉取免费模型（与网页 openrouter.ai/models?variant=free 同源）。
+
+    判定为免费：模型 ID 以 :free 结尾，或 prompt/completion 单价都恰好为 0（如 openrouter/free）。
+    只保留能输出文本的模型。失败时直接抛出异常——st.cache_data 不会缓存异常，
+    所以下次刷新会自动重试，不会把“空列表”缓存很久。
+    """
+    r = requests.get("https://openrouter.ai/api/v1/models", timeout=20, headers={"Accept": "application/json"})
+    r.raise_for_status()
+    out = []
+    for m in r.json()["data"]:
+        pr = m.get("pricing") or {}
+        free = m["id"].endswith(":free") or (_price(pr.get("prompt")) == 0 and _price(pr.get("completion")) == 0)
+        if not free:
+            continue
+        outs = (m.get("architecture") or {}).get("output_modalities")
+        if outs and "text" not in outs:
+            continue
+        expires = str(m.get("expiration_date") or "")[:10]
+        if expires and expires < datetime.date.today().isoformat():  # 已下线
+            continue
+        out.append(dict(
+            id=m["id"], name=m.get("name") or m["id"], kind=model_kind(m),
+            ctx=int(m.get("context_length") or 0), created=int(m.get("created") or 0), expires=expires,
+        ))
+    if not out:
+        raise RuntimeError("接口返回中没有免费模型")
+    return out
+
+
+def get_free_models():
+    """返回 (模型列表, 错误信息)；联网失败时列表为空，由调用方回退到内置备用列表。"""
+    try:
+        return fetch_free_models(), ""
+    except Exception as e:
+        return [], str(e)[:120]
 
 
 # ---- 医学/麻醉学术语对照表（luovalley/ppt-web glossary.md）----
@@ -1617,16 +1665,37 @@ def main():
         except Exception:
             secret_key = ""
         api_key = st.text_input("OpenRouter API Key", type="password", placeholder="sk-or-v1-...") or secret_key
-        free_live = fetch_free_models()
-        free_pool = free_live or FREE_MODELS
+        free_live, fetch_err = get_free_models()
+        cA, cB = st.columns(2)
+        min_ctx = cA.selectbox("最小上下文", [0, 16000, 32000, 64000, 128000], index=2,
+                               format_func=lambda v: "不限" if v == 0 else f"≥{v // 1000}k")
+        sort_by = cB.selectbox("排序", ["上下文长度", "最新发布", "名称"])
+        if st.button("🔄 刷新免费模型列表", width="stretch"):
+            fetch_free_models.clear()
+            st.rerun()
+        chat_only = st.checkbox("只显示适合写作的对话模型", True,
+                                help="排除嵌入(embed)、重排(rerank)、内容安全(safety)和代码专用模型，它们无法完成大纲生成。")
+        pool = [m for m in free_live if m["ctx"] >= min_ctx and (not chat_only or m["kind"] == "chat")]
+        pool.sort(key={"上下文长度": lambda m: -m["ctx"], "最新发布": lambda m: -m["created"], "名称": lambda m: m["id"]}[sort_by])
+        free_pool = [m["id"] for m in pool] or FREE_MODELS
+        # 自动备用模型：固定取上下文最大的几个（≥32k），不受上面排序/筛选影响
+        fallback_pool = [m["id"] for m in sorted(free_live, key=lambda m: -m["ctx"]) if m["ctx"] >= 32000 and m["kind"] == "chat"] or FREE_MODELS
+        labels = {
+            m["id"]: f"{m['id']}" + (f" · {m['ctx'] // 1000}k" if m["ctx"] else "")
+            + (f" · ⚠️{m['expires'][5:]}下线" if m["expires"] else "")
+            for m in free_live
+        }
         if DEFAULT_MODEL not in free_pool:
             free_pool = [DEFAULT_MODEL] + free_pool
         if "openrouter/free" not in free_pool:
             free_pool = free_pool + ["openrouter/free"]
-        st.caption(f"已从 OpenRouter 实时获取 {len(free_live)} 个免费模型（上下文 ≥32k）" if free_live else "未能联网获取模型列表，使用内置备用列表")
+        if free_live:
+            st.caption(f"已从 OpenRouter 实时获取 {len(free_live)} 个免费模型，当前筛选后 {len(pool)} 个")
+        else:
+            st.caption(f"未能联网获取模型列表（{fetch_err}），使用内置备用列表；可点上方按钮重试")
         _model_choices = free_pool + PAID_MODELS
         _default_idx = _model_choices.index(DEFAULT_MODEL) if DEFAULT_MODEL in _model_choices else 0
-        model_name = st.selectbox("选择模型", _model_choices, index=_default_idx)
+        model_name = st.selectbox("选择模型", _model_choices, index=_default_idx, format_func=lambda i: labels.get(i, i))
         custom_model = st.text_input("自定义模型 ID（可选，优先使用）", placeholder="如 anthropic/claude-sonnet-4.5")
         auto_fallback = st.checkbox("失败时自动尝试其他免费模型", True)
         max_chars = st.slider("送入模型的最大字符数", 10000, 120000, 45000, 5000,
@@ -1696,7 +1765,7 @@ def main():
                         f"- 额外要求：{extra.strip() or '无'}\n\n【图片清单】\n{img_desc}\n{gloss_section}\n【文献正文】\n{text}"
                     )
                     first = custom_model.strip() or model_name
-                    models = [first] + ([m for m in free_pool[:6] if m != first] if auto_fallback else [])
+                    models = [first] + ([m for m in fallback_pool[:6] if m != first] if auto_fallback else [])
                     st.write(f"调用模型 `{first}` 生成大纲…")
                     data, used = call_llm(api_key, models, user_prompt, lambda m, e: st.write(f"⚠️ `{m}`：{str(e)[:160]}"))
                     outline = normalize_outline(data, images)
