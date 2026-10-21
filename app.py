@@ -1651,9 +1651,9 @@ def main():
     uploaded = st.file_uploader("支持 PDF / Word(.docx) / Markdown / TXT", type=["pdf", "docx", "md", "txt"])
     extra = st.text_area("补充要求（可选）", placeholder="例如：用于科室组会汇报，重点讲方法学和主要结果，不讲背景细节。")
     c1, c2 = st.columns(2)
-    n_slides = c1.slider("内容页数（不含封面、目录、参考文献）", 6, 30, 12)
+    n_slides = c1.slider("内容页数（不含封面、目录、参考文献）", 6, 30, 20)
     c1.caption(f"预计总页数约 {n_slides + 3} 页（内容页 + 封面 + 目录 + 参考文献）")
-    lang = c2.selectbox("PPT 语言", ["与文献一致", "中文", "English"])
+    lang = c2.selectbox("PPT 语言", ["中文", "English"])
 
     if st.button("🚀 分析文献并生成大纲", type="primary"):
         if not api_key:
@@ -1678,7 +1678,7 @@ def main():
                         f"图片{i}: " + (f"第{m['page']}页; " if m["page"] else "") + f"{m['w']}x{m['h']}; 原文图注: {m['caption'] or '无'}"
                         for i, m in images.items()
                     ) or "（无可用图片）"
-                    lang_req = {"与文献一致": "与文献语言一致", "中文": "全部使用中文（专业缩写保留英文）", "English": "全部使用英文"}[lang]
+                    lang_req = {"中文":"中文": "全部使用中文（专业缩写保留英文）", "English": "全部使用英文"}[lang]
 
                     # 加载医学术语对照表，挑出文献中实际出现的术语附给模型
                     st.write("加载医学术语对照表…")
